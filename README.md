@@ -22,3 +22,12 @@ Wachalarm IP Server verwendet eine ätere socket.io version, man muss uf Version
 libarys installieren
 * python -m pip install logging
 * python -m pip install requests
+
+## Wachalarm ID
+Hier passenden Alarmmonitor raussuchen und Wach ID aus der URL kopieren: https://wachalarm.leitstelle-lausitz.de/waip/
+Beispiel:
+* 0 = Alle Alarme der Leitstelle Lausitz (https://wachalarm.leitstelle-lausitz.de/waip/0)
+* 61 = Alle Alarme des Landkreis Dahme Spreewald (https://wachalarm.leitstelle-lausitz.de/waip/61)
+* 6107  = Alle Alarme des Gemeinde Zeuthen (https://wachalarm.leitstelle-lausitz.de/waip/6107)
+* 610702 = Alle Alarme Wache Zeuthen (https://wachalarm.leitstelle-lausitz.de/waip/610702)
+* 610703 = Alle Alarme Wache Miersdorf (https://wachalarm.leitstelle-lausitz.de/waip/610703)
