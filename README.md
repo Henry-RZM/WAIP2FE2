@@ -1,11 +1,11 @@
 # WAIP2FE2
-Script zur Abfrage der Einsätzt der socket.io Schnittstelle von Wachalarm IP und übergabe an Alamos FE2 http post Schnittstelle
+Skript zur Abfrage der Einsätze der socket.io Schnittstelle von Wachalarm IP und Übergabe an Alamos FE2 http post Schnittstelle
 
 ## Installation
-Installation Python
+Installation Python, getestet mit python 3.11
 * https://www.microsoft.com/store/productId/9NRWMJP3717K
 
-Wachalarm IP Server verwendet eine ätere socket.io version, man muss uf Version 3 downgraden
+Wachalarm IP Server verwendet eine ältere socket.io Version, man muss auf Version 3 downgraden
 * https://www.appsloveworld.com/django/100/284/python-socketio-open-packet-not-returned-by-the-server
 * pip install python-engineio==3.14.2 python-socketio==4.6.0
 
@@ -17,13 +17,13 @@ libarys installieren
 * Administration > Alarmeingang > Alarmeingang hinzufügen
 * Name Vergeben und "Externe Schnittstelle" auswählen
 * TCP/IP aktivieren
-* Port wählen, standard ist 83
+* Port wählen, Standard ist 83
 * Version Datenformat: v2
 * Gültige Absender: waip2alamos-secret
-* Alamierung: hier das mapping auf die geünwscht Einheit festlegen
+* Alarmierung: hier das mapping auf die gewünschte Einheit festlegen
 * HTTP POST aktivieren
 
-## Start Script
+## Start Skript
 ### Mit Standard Parameter
 python waip_2_fe2.py
 
