@@ -14,8 +14,8 @@ import logging  # file or console logging
 import traceback # stack trace
 import time # sleep
 import pathlib # get folder path
-import sys # für parameter aufrufg
-import getopt # für parameter aufrufg
+import sys # für parameter aufruf
+import getopt # für parameter aufruf
 
 ### Parameter ##################################################################################
 
@@ -34,7 +34,7 @@ fe2_pass = "waip2alamos-secret"
 # default Wachalarm IP Bereich (alles LST Lausitz)
 wache = "0"
 
-# parameter bi script aufrum auslesen
+# parameter bei script aufruf auslesen
 argv = sys.argv
 arg_help = "{0} -f <fe2url> -p <fe2passwort> -w <wache>".format(argv[0])
     
@@ -62,7 +62,7 @@ print('\n *** Script zur Abfrage der Einsätze der socket.io Schnittstelle von W
 sio = socketio.Client(logger=True, engineio_logger=False)
 
 logpath = str(pathlib.Path().resolve())
-logpath += "waip_2_fe2.log"
+logpath += "\waip_2_fe2.log"
 print('Logfile Path: ', logpath)
 
 # logging to file
