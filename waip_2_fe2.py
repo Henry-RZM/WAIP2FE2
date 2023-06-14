@@ -3,8 +3,9 @@
 # Script zur Abfrage der Einsätze der socket.io Schnittstelle von Wachalarm IP
 # und Übergabe an Alamos FE2 http post Schnittstelle
 #
+# https://github.com/Henry-RZM/WAIP2FE2/
+#
 #####################################################################################
-
 
 ### libarys laden ##################################################################################
 import socketio # socket.io libary für Wachalarm IP
@@ -76,7 +77,7 @@ logging.info(f' WAIP2ALAMOS: ===> Alamos FE2 API: {fe2_url} \n')
 print('Wachalarm IP Bereich: ', wache)
 logging.info(f' WAIP2ALAMOS: ===> Wachalarm IP Bereich: {wache} \n')
 
-### code ##################################################################################
+### main ##################################################################################
 sio = socketio.Client()
 
 # Trigger Event Connect
@@ -93,8 +94,7 @@ def connect():
 def disconnect():
     logging.info(f' WAIP2ALAMOS: ===> disconnected from server')
 
-# Trigger Event Version
-# Gibt die Runtime ID des Servers wieder
+# Trigger Event Version; Gibt die Runtime ID des Servers wieder
 @sio.on('io.version', namespace='/waip')
 def on_message(data):
     logging.info(f' WAIP2ALAMOS: ===> Server Version/Process Number: {data} \n')
@@ -137,13 +137,13 @@ def on_message(data):
     string_data += ' '
     
     if data["em_alarmiert"]:
-        string_data += '\\n \\n EM Alamiert: '
+        string_data += '\\n \\n EM Alarmiert: '
         for em in em_alarmiert:
             string_data += em["name"]
             string_data += '; '
 
     if data["em_weitere"]:
-        string_data += '\\n \\n EM Alamiert Weitere: '
+        string_data += '\\n \\n EM Alarmiert Weitere: '
         for em in em_weitere:
             string_data += em["name"]
             string_data += '; '
@@ -192,6 +192,3 @@ while (2 >= 1): # endlosschleife falls verbindung getrennt wird
         time.sleep(1) # pause, reduziert anfragen gegen den server
 
     sio.wait() # Sript am laufen halten, damit die events empfangen werden können
-
-
-
