@@ -56,6 +56,8 @@ for opt, arg in opts:
     elif opt in ("-w", "--wache"):
         wache = arg
 
+letzter_alarm = "0" # Variable initialisieren
+
 ### debugging ##################################################################################
 print('\n *** Script zur Abfrage der Einsätze der socket.io Schnittstelle von Wachalarm IP und Übergabe an Alamos FE2 http post Schnittstelle *** \n')
 
@@ -84,10 +86,10 @@ sio = socketio.Client()
 @sio.event(namespace='/waip')
 def connect():
     logging.info(f' WAIP2ALAMOS: ===> connection established')
-    # Wachen ID senden und "abonieren"
-    print('Aboniere Wache: ',wache)
+    # Wachen ID senden und "abonnieren"
+    print('Abonniere Wache: ',wache)
     sio.emit('WAIP', wache, namespace='/waip')
-    logging.info(f' WAIP2ALAMOS: ===> Aboniere Wache: {wache} \n')
+    logging.info(f' WAIP2ALAMOS: ===> Abonniere Wache: {wache}')
 
 # Trigger Event Disconnect
 @sio.event(namespace='/waip')
@@ -97,21 +99,28 @@ def disconnect():
 # Trigger Event Version; Gibt die Runtime ID des Servers wieder
 @sio.on('io.version', namespace='/waip')
 def on_message(data):
-    logging.info(f' WAIP2ALAMOS: ===> Server Version/Process Number: {data} \n')
+    logging.info(f' WAIP2ALAMOS: ===> Server Version/Process Number: {data}')
 
 # Trigger Event Neuer Alarm
 @sio.on('io.new_waip', namespace='/waip')
 def on_message(data):
-    print(f'Neuer Alarm: {data["stichwort"]} - {data["ort"]}')
-    logging.info(f' WAIP2ALAMOS: ===> Neuer Alarm!')
+    global letzter_alarm
+
+    # Zeitunterschied zwischen Alarm und jetzt
+    from datetime import datetime
+    time_dif = datetime.today() - datetime.strptime(data["zeitstempel"], '%Y-%m-%d %H:%M:%S')
+    
+    print(f'Neuer Alarm: {data["id"]} {data["stichwort"]} - {data["ort"]}')
+    logging.info(f' WAIP2ALAMOS: ===> Neuer Alarm! ID: {data["id"]}')
     logging.info(f' WAIP2ALAMOS: zeitstempel: {data["zeitstempel"]}')
+    logging.info(f' WAIP2ALAMOS: Alarm Offset: {time_dif}')
     logging.info(f' WAIP2ALAMOS: einsatzart: {data["einsatzart"]}')
     logging.info(f' WAIP2ALAMOS: stichwort: {data["stichwort"]}')
     logging.info(f' WAIP2ALAMOS: ortsteil: {data["ortsteil"]}')
     logging.info(f' WAIP2ALAMOS: ort: {data["ort"]}')
     logging.info(f' WAIP2ALAMOS: em_alarmiert: {data["em_alarmiert"]}')
     logging.info(f' WAIP2ALAMOS: em_weitere: {data["em_weitere"]}')
-    logging.info(f' WAIP2ALAMOS: =========================================\n ')
+    logging.info(f' WAIP2ALAMOS: ========================================= ')
 
     # Fahrzeuge in json einlesen
     if data["em_alarmiert"]:
@@ -172,23 +181,30 @@ def on_message(data):
     string_data += ']'
     string_data += '} }'
 
-    post_data = json.loads(string_data)
-    logging.info(f' WAIP2ALAMOS: Trying to do FE2 POST request with this data: {post_data}')
-    post = requests.post(fe2_url, json = post_data, timeout=300)
-    logging.info(f' WAIP2ALAMOS: FE2 POST request return code: {post.text}')
+    if (time_dif.seconds < 600 ): # Nur Alarme mit geringe differenz zwischen WA-IP Zeitstempel und lokaler zeit senden, Vermeidung doppelalarmierung
+        if (letzter_alarm != data["id"]):  # prüfen ob die vorherrige Alarm-ID identisch ist mit der aktuellen, Vermeidung doppelalarmierung
+            post_data = json.loads(string_data)
+            logging.info(f' WAIP2ALAMOS: Trying to do FE2 POST request with this data: {post_data}')
+            post = requests.post(fe2_url, json = post_data, timeout=300)
+            logging.info(f' WAIP2ALAMOS: FE2 POST request return code: {post.text}')
+            letzter_alarm = data["id"]
+        else:
+            logging.info(f' WAIP2ALAMOS: Alarm nicht gesendet, doppelalarm')
+    else:
+        logging.info(f' WAIP2ALAMOS: Alarm nicht gesendet, Zeitunterschied ist zu groß')
 
 
-while (2 >= 1): # endlosschleife falls verbindung getrennt wird
-    # socket.io verbindung aufbauen
+while (2 >= 1): # Endlosschleife falls Verbindung getrennt wird
+    # socket.io Verbindung aufbauen
     print(f'Verbinde zu Server: {waip_url}')
-    logging.info(f' WAIP2ALAMOS: ===> Verbinde zu Server: {waip_url} \n')
+    logging.info(f' WAIP2ALAMOS: ===> Verbinde zu Server: {waip_url}')
 
     try:
         sio.connect(waip_url, namespaces=[waip_namespace])
     except Exception as e:
         logging.error(traceback.format_exc())
         print('Verbindung zu Server getrennt und reconnect failed')
-        logging.info(f' Verbindung zu Server getrennt und reconnect failed \n')
+        logging.info(f' Verbindung zu Server getrennt und reconnect failed')
         time.sleep(1) # pause, reduziert anfragen gegen den server
 
     sio.wait() # Sript am laufen halten, damit die events empfangen werden können
