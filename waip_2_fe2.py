@@ -98,30 +98,37 @@ def on_message(data):
 
 # Trigger Event Neuer Alarm
 @sio.on('io.new_waip', namespace='/waip')
-def on_message(data):
+def on_alarm(data):
     global letzter_alarm
 
-    # Zeitunterschied zwischen Alarm und jetzt
     from datetime import datetime
-    time_dif = datetime.today() - datetime.strptime(data["zeitstempel"], '%Y-%m-%d %H:%M:%S')
-    
-    print(f'Neuer Alarm: {data["id"]} {data["stichwort"]} - {data["ort"]}')
+
+    # ts_alarm ist ein Unix-Timestamp (Sekunden), zeitstempel war früher ein formatierter String
+    alarm_time = datetime.fromtimestamp(data["ts_alarm"])
+    time_dif = datetime.today() - alarm_time
+
+    # Feldname: stichwort -> einsatzstichwort
+    stichwort = data["einsatzstichwort"]
+
+    print(f'Neuer Alarm: {data["id"]} {stichwort} - {data["ort"]}')
     logging.info(f' WAIP2ALAMOS: ===> Neuer Alarm! ID: {data["id"]}')
-    logging.info(f' WAIP2ALAMOS: zeitstempel: {data["zeitstempel"]}')
+    logging.info(f' WAIP2ALAMOS: ts_alarm: {alarm_time}')
     logging.info(f' WAIP2ALAMOS: Alarm Offset: {time_dif}')
     logging.info(f' WAIP2ALAMOS: einsatzart: {data["einsatzart"]}')
-    logging.info(f' WAIP2ALAMOS: stichwort: {data["stichwort"]}')
+    logging.info(f' WAIP2ALAMOS: einsatzstichwort: {stichwort}')
     logging.info(f' WAIP2ALAMOS: ortsteil: {data["ortsteil"]}')
     logging.info(f' WAIP2ALAMOS: ort: {data["ort"]}')
     logging.info(f' WAIP2ALAMOS: em_alarmiert: {data["em_alarmiert"]}')
     logging.info(f' WAIP2ALAMOS: em_weitere: {data["em_weitere"]}')
     logging.info(f' WAIP2ALAMOS: ========================================= ')
 
-    # Fahrzeuge in json einlesen
-    if data["em_alarmiert"]:
-        em_alarmiert =  json.loads(data["em_alarmiert"])
-    if data["em_weitere"]:
-        em_weitere =  json.loads(data["em_weitere"])
+    # em_alarmiert/em_weitere sind jetzt Listen, nicht mehr JSON-Strings
+    em_alarmiert = data["em_alarmiert"] if data["em_alarmiert"] else []
+    em_weitere = data["em_weitere"] if data["em_weitere"] else []
+
+    # Feldname in em-Einträgen: name -> name_einsatzmittel
+    def em_name(em):
+        return em.get("name_einsatzmittel") or em.get("name", "")
 
     #  String für Alamos FE2 bauen
     string_data = '{  "type": "ALARM",  "timestamp": "'
@@ -129,27 +136,27 @@ def on_message(data):
     string_data += '",  "sender": "Wachalarm IP",  "authorization": "'
     string_data += fe2_pass
     string_data += '",  "data": {    "externalId": "python-waip-fe2",    "keyword": "'
-    string_data += data["stichwort"]
+    string_data += stichwort
     string_data += '",    "keyword_description": "'
     string_data += data["einsatzart"]
     string_data += '",    "message": [      "'
-    string_data += data["stichwort"]
+    string_data += stichwort
     string_data += ' \\n'
     string_data += data["ortsteil"]
     string_data += ' '
     string_data += data["ort"]
     string_data += ' '
-    
-    if data["em_alarmiert"]:
+
+    if em_alarmiert:
         string_data += '\\n \\n EM Alarmiert: '
         for em in em_alarmiert:
-            string_data += em["name"]
+            string_data += em_name(em)
             string_data += '; '
 
-    if data["em_weitere"]:
+    if em_weitere:
         string_data += '\\n \\n EM Alarmiert Weitere: '
         for em in em_weitere:
-            string_data += em["name"]
+            string_data += em_name(em)
             string_data += '; '
 
     string_data += '"    ],    "location": {      "city": "'
@@ -159,25 +166,24 @@ def on_message(data):
     string_data += '"    }, '
     string_data += '"vehicles": ['
 
-    if data["em_alarmiert"]:
+    if em_alarmiert:
         for em in em_alarmiert:
             string_data += '{        "id": "'
-            string_data += em["name"]
+            string_data += em_name(em)
             string_data += '" },'
-    
-    if data["em_weitere"]:
+
+    if em_weitere:
         for em in em_weitere:
             string_data += '{        "id": "'
-            string_data += em["name"]
+            string_data += em_name(em)
             string_data += '" },'
 
     string_data = string_data.removesuffix(",")
-
     string_data += ']'
     string_data += '} }'
 
-    if (time_dif.seconds < 600 ): # Nur Alarme mit geringe differenz zwischen WA-IP Zeitstempel und lokaler zeit senden, Vermeidung doppelalarmierung
-        if (letzter_alarm != data["id"]):  # prüfen ob die vorherrige Alarm-ID identisch ist mit der aktuellen, Vermeidung doppelalarmierung
+    if (time_dif.seconds < 600):
+        if (letzter_alarm != data["id"]):
             post_data = json.loads(string_data)
             logging.info(f' WAIP2ALAMOS: Trying to do FE2 POST request with this data: {post_data}')
             post = requests.post(fe2_url, json = post_data, timeout=300)
