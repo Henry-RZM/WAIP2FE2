@@ -5,9 +5,9 @@ Skript zur Abfrage der Einsätze der socket.io Schnittstelle von Wachalarm IP un
 Installation Python, getestet mit python 3.11
 * https://www.microsoft.com/store/productId/9NRWMJP3717K
 
-Wachalarm IP Server verwendet eine ältere socket.io Version, man muss auf Version 3 downgraden
-* https://www.appsloveworld.com/django/100/284/python-socketio-open-packet-not-returned-by-the-server
-* pip install python-engineio==3.14.2 python-socketio==4.6.0
+Wachalarm IP Server verwendet socket.io
+* pip install python-socketio python-engineio websocket-client requests
+* Hinweis (Stand Juni 2025): Der Server wurde aktualisiert und setzt jetzt Socket.IO v4 voraus. Die bisher nötigen Downgrade-Versionen (socketio==4.6.0) funktionieren nicht mehr. Bitte die aktuellen Versionen installieren.
 
 libarys installieren
 * python -m pip install logging
