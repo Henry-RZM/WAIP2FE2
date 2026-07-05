@@ -61,11 +61,8 @@ letzter_alarm = "0" # Variable initialisieren
 ### debugging ##################################################################################
 print('\n *** Script zur Abfrage der Einsätze der socket.io Schnittstelle von Wachalarm IP und Übergabe an Alamos FE2 http post Schnittstelle *** \n')
 
-# socket.io debug output
-sio = socketio.Client(logger=True, engineio_logger=False)
-
 logpath = str(pathlib.Path().resolve())
-logpath += "\waip_2_fe2.log"
+logpath += r"\waip_2_fe2.log"
 print('Logfile Path: ', logpath)
 
 # logging to file
@@ -80,20 +77,18 @@ print('Wachalarm IP Bereich: ', wache)
 logging.info(f' WAIP2ALAMOS: ===> Wachalarm IP Bereich: {wache} \n')
 
 ### main ##################################################################################
-sio = socketio.Client()
+sio = socketio.Client(logger=False, engineio_logger=False)
 
 # Trigger Event Connect
 @sio.event(namespace='/waip')
 def connect():
-    logging.info(f' WAIP2ALAMOS: ===> connection established')
-    # Wachen ID senden und "abonnieren"
-    print('Abonniere Wache: ',wache)
-    sio.emit('WAIP', wache, namespace='/waip')
-    logging.info(f' WAIP2ALAMOS: ===> Abonniere Wache: {wache}')
+    print(f'Verbunden mit Wache: {wache}')
+    logging.info(f' WAIP2ALAMOS: ===> connection established, Wache: {wache}')
 
 # Trigger Event Disconnect
 @sio.event(namespace='/waip')
 def disconnect():
+    print('Verbindung zu Server getrennt (disconnect event)')
     logging.info(f' WAIP2ALAMOS: ===> disconnected from server')
 
 # Trigger Event Version; Gibt die Runtime ID des Servers wieder
@@ -200,11 +195,27 @@ while (2 >= 1): # Endlosschleife falls Verbindung getrennt wird
     logging.info(f' WAIP2ALAMOS: ===> Verbinde zu Server: {waip_url}')
 
     try:
-        sio.connect(waip_url, namespaces=[waip_namespace])
-    except Exception as e:
+        sio.connect(
+            waip_url,
+            namespaces=[waip_namespace],
+            transports=['polling'],
+            auth={'id': wache},
+            wait_timeout=10,
+        )
+        sio.wait()
+    except socketio.exceptions.ConnectionError as e:
+        # Zeigt den genauen Verbindungsfehler (z.B. Namespace abgelehnt, Auth fehlt)
+        print(f'Verbindungsfehler: {e}')
+        logging.error(f' WAIP2ALAMOS: Verbindungsfehler: {e}')
         logging.error(traceback.format_exc())
-        print('Verbindung zu Server getrennt und reconnect failed')
-        logging.info(f' Verbindung zu Server getrennt und reconnect failed')
-        time.sleep(1) # pause, reduziert anfragen gegen den server
-
-    sio.wait() # Sript am laufen halten, damit die events empfangen werden können
+        time.sleep(5)
+    except Exception as e:
+        print(f'Unerwarteter Fehler: {type(e).__name__}: {e}')
+        logging.error(traceback.format_exc())
+        time.sleep(5)
+    finally:
+        # Sicherstellen dass der Client-Zustand zurückgesetzt wird vor erneutem Verbinden
+        try:
+            sio.disconnect()
+        except Exception:
+            pass
