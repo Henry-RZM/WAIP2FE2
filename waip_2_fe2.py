@@ -17,6 +17,7 @@ import time # sleep
 import pathlib # get folder path
 import sys # für parameter aufruf
 import getopt # für parameter aufruf
+import threading # für Session-Keepalive
 
 ### Parameter ##################################################################################
 
@@ -40,7 +41,7 @@ argv = sys.argv
 arg_help = "{0} -f <fe2url> -p <fe2passwort> -w <wache>".format(argv[0])
     
 try:
-    opts, args = getopt.getopt(argv[1:], "hf:w:", ["help", "fe2url=", "fe2pass=", "wache="])
+    opts, args = getopt.getopt(argv[1:], "hf:p:w:", ["help", "fe2url=", "fe2pass=", "wache="])
 except:
     print(arg_help)
     sys.exit(2)
@@ -79,22 +80,44 @@ logging.info(f' WAIP2ALAMOS: ===> Wachalarm IP Bereich: {wache} \n')
 ### main ##################################################################################
 sio = socketio.Client(logger=False, engineio_logger=False)
 
+# Zeitstempel des letzten Disconnects — für Reconnect-Dauer-Messung.
+# None = noch nie verbunden gewesen (erster Connect → immer Konsole).
+_disconnect_time = None
+
+def _cprint(msg):
+    """Gibt eine Meldung sowohl auf der Konsole als auch im Logfile aus."""
+    print(msg)
+    logging.info(f' WAIP2ALAMOS: {msg}')
+
 # Trigger Event Connect
 @sio.event(namespace='/waip')
 def connect():
-    print(f'Verbunden mit Wache: {wache}')
-    logging.info(f' WAIP2ALAMOS: ===> connection established, Wache: {wache}')
+    global _disconnect_time
+    elapsed = time.time() - _disconnect_time if _disconnect_time is not None else 99
+    if elapsed >= 2:
+        # Erster Connect oder langsamer Reconnect → Konsole + Log
+        _cprint(f'===> Verbunden mit Wache: {wache} (Reconnect nach {elapsed:.1f}s)')
+    else:
+        # Normaler ~15-Min-Reconnect unter 2 Sekunden → nur Log
+        logging.info(f' WAIP2ALAMOS: ===> reconnected, Wache: {wache} ({elapsed:.1f}s)')
+    sio.emit('WAIP', wache, namespace='/waip')
 
 # Trigger Event Disconnect
 @sio.event(namespace='/waip')
 def disconnect():
-    print('Verbindung zu Server getrennt (disconnect event)')
+    global _disconnect_time
+    _disconnect_time = time.time()
     logging.info(f' WAIP2ALAMOS: ===> disconnected from server')
 
 # Trigger Event Version; Gibt die Runtime ID des Servers wieder
 @sio.on('io.version', namespace='/waip')
 def on_message(data):
     logging.info(f' WAIP2ALAMOS: ===> Server Version/Process Number: {data}')
+
+# Trigger Event Fehler vom Server (z.B. Session-Timeout → normaler Reconnect-Zyklus)
+@sio.on('io.error', namespace='/waip')
+def on_error(data):
+    logging.warning(f' WAIP2ALAMOS: ===> Server io.error: {data}')
 
 # Trigger Event Neuer Alarm
 @sio.on('io.new_waip', namespace='/waip')
@@ -130,63 +153,38 @@ def on_alarm(data):
     def em_name(em):
         return em.get("name_einsatzmittel") or em.get("name", "")
 
-    #  String für Alamos FE2 bauen
-    string_data = '{  "type": "ALARM",  "timestamp": "'
-    string_data += '2000-01-01T00:00:00+01:00'
-    string_data += '",  "sender": "Wachalarm IP",  "authorization": "'
-    string_data += fe2_pass
-    string_data += '",  "data": {    "externalId": "python-waip-fe2",    "keyword": "'
-    string_data += stichwort
-    string_data += '",    "keyword_description": "'
-    string_data += data["einsatzart"]
-    string_data += '",    "message": [      "'
-    string_data += stichwort
-    string_data += ' \\n'
-    string_data += data["ortsteil"]
-    string_data += ' '
-    string_data += data["ort"]
-    string_data += ' '
+    # Fahrzeug-Liste für FE2 (em_alarmiert + em_weitere)
+    vehicles = [{"id": em_name(em)} for em in em_alarmiert + em_weitere]
 
+    # Meldetext
+    message_parts = [f'{stichwort}\n{data["ortsteil"]} {data["ort"]}']
     if em_alarmiert:
-        string_data += '\\n \\n EM Alarmiert: '
-        for em in em_alarmiert:
-            string_data += em_name(em)
-            string_data += '; '
-
+        message_parts.append('EM Alarmiert: ' + '; '.join(em_name(em) for em in em_alarmiert))
     if em_weitere:
-        string_data += '\\n \\n EM Alarmiert Weitere: '
-        for em in em_weitere:
-            string_data += em_name(em)
-            string_data += '; '
+        message_parts.append('EM Alarmiert Weitere: ' + '; '.join(em_name(em) for em in em_weitere))
 
-    string_data += '"    ],    "location": {      "city": "'
-    string_data += data["ort"]
-    string_data += '",      "city_abbr": "'
-    string_data += data["ortsteil"]
-    string_data += '"    }, '
-    string_data += '"vehicles": ['
+    post_data = {
+        "type": "ALARM",
+        "timestamp": "2000-01-01T00:00:00+01:00",
+        "sender": "Wachalarm IP",
+        "authorization": fe2_pass,
+        "data": {
+            "externalId": "python-waip-fe2",
+            "keyword": stichwort,
+            "keyword_description": data["einsatzart"],
+            "message": [' \n '.join(message_parts)],
+            "location": {
+                "city": data["ort"],
+                "city_abbr": data["ortsteil"],
+            },
+            "vehicles": vehicles,
+        }
+    }
 
-    if em_alarmiert:
-        for em in em_alarmiert:
-            string_data += '{        "id": "'
-            string_data += em_name(em)
-            string_data += '" },'
-
-    if em_weitere:
-        for em in em_weitere:
-            string_data += '{        "id": "'
-            string_data += em_name(em)
-            string_data += '" },'
-
-    string_data = string_data.removesuffix(",")
-    string_data += ']'
-    string_data += '} }'
-
-    if (time_dif.seconds < 600):
+    if (time_dif.total_seconds() < 600):
         if (letzter_alarm != data["id"]):
-            post_data = json.loads(string_data)
             logging.info(f' WAIP2ALAMOS: Trying to do FE2 POST request with this data: {post_data}')
-            post = requests.post(fe2_url, json = post_data, timeout=300)
+            post = requests.post(fe2_url, json=post_data, timeout=300)
             logging.info(f' WAIP2ALAMOS: FE2 POST request return code: {post.text}')
             letzter_alarm = data["id"]
         else:
@@ -195,10 +193,28 @@ def on_alarm(data):
         logging.info(f' WAIP2ALAMOS: Alarm nicht gesendet, Zeitunterschied ist zu groß')
 
 
+# HTTP-Session für Cookie-Übergabe beim Socket-Connect und Keepalive.
+# Verlängert den Server-seitigen Disconnect von ~10 auf ~15 Minuten.
+# Nach Disconnect reconnectet der While-Loop automatisch (<2 Sekunden).
+http_session = requests.Session()
+http_session.get(f'{waip_url}/waip/{wache}', timeout=10)
+logging.info(f' WAIP2ALAMOS: ===> HTTP-Session initialisiert, Cookie: {bool(http_session.cookies)}')
+
+def session_keepalive():
+    while True:
+        time.sleep(4 * 60)
+        try:
+            http_session.get(f'{waip_url}/waip/{wache}', timeout=10)
+            logging.info(f' WAIP2ALAMOS: ===> Session keepalive OK')
+        except Exception as e:
+            logging.warning(f' WAIP2ALAMOS: Session keepalive fehlgeschlagen: {e}')
+
+threading.Thread(target=session_keepalive, daemon=True).start()
+
 while (2 >= 1): # Endlosschleife falls Verbindung getrennt wird
-    # socket.io Verbindung aufbauen
-    print(f'Verbinde zu Server: {waip_url}')
     logging.info(f' WAIP2ALAMOS: ===> Verbinde zu Server: {waip_url}')
+
+    session_cookies = '; '.join(f'{k}={v}' for k, v in http_session.cookies.items())
 
     try:
         sio.connect(
@@ -207,10 +223,10 @@ while (2 >= 1): # Endlosschleife falls Verbindung getrennt wird
             transports=['polling'],
             auth={'id': wache},
             wait_timeout=10,
+            headers={'Cookie': session_cookies} if session_cookies else {},
         )
         sio.wait()
     except socketio.exceptions.ConnectionError as e:
-        # Zeigt den genauen Verbindungsfehler (z.B. Namespace abgelehnt, Auth fehlt)
         print(f'Verbindungsfehler: {e}')
         logging.error(f' WAIP2ALAMOS: Verbindungsfehler: {e}')
         logging.error(traceback.format_exc())
@@ -220,7 +236,6 @@ while (2 >= 1): # Endlosschleife falls Verbindung getrennt wird
         logging.error(traceback.format_exc())
         time.sleep(5)
     finally:
-        # Sicherstellen dass der Client-Zustand zurückgesetzt wird vor erneutem Verbinden
         try:
             sio.disconnect()
         except Exception:
