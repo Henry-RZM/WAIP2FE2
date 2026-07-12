@@ -93,13 +93,17 @@ def _cprint(msg):
 @sio.event(namespace='/waip')
 def connect():
     global _disconnect_time
-    elapsed = time.time() - _disconnect_time if _disconnect_time is not None else 99
-    if elapsed >= 2:
-        # Erster Connect oder langsamer Reconnect → Konsole + Log
-        _cprint(f'===> Verbunden mit Wache: {wache} (Reconnect nach {elapsed:.1f}s)')
+    if _disconnect_time is None:
+        # Erster Connect → Konsole + Log
+        _cprint(f'===> Verbunden mit Wache: {wache} (erster Connect)')
     else:
-        # Normaler ~15-Min-Reconnect unter 2 Sekunden → nur Log
-        logging.info(f' WAIP2ALAMOS: ===> reconnected, Wache: {wache} ({elapsed:.1f}s)')
+        elapsed = time.time() - _disconnect_time
+        if elapsed >= 10:
+            # Langsamer Reconnect → Konsole + Log
+            _cprint(f'===> Verbunden mit Wache: {wache} (Reconnect nach {elapsed:.1f}s)')
+        else:
+            # Normaler ~15-Min-Reconnect unter 10 Sekunden → nur Log
+            logging.info(f' WAIP2ALAMOS: ===> reconnected, Wache: {wache} ({elapsed:.1f}s)')
     sio.emit('WAIP', wache, namespace='/waip')
 
 # Trigger Event Disconnect
@@ -122,23 +126,36 @@ def on_error(data):
 # Trigger Event Neuer Alarm
 @sio.on('io.new_waip', namespace='/waip')
 def on_alarm(data):
+    # Rohdaten sofort loggen, damit ein Payload mit fehlenden/unerwarteten Feldern
+    # nachvollziehbar bleibt, auch wenn die Verarbeitung weiter unten crasht.
+    logging.info(f' WAIP2ALAMOS: ===> io.new_waip Rohdaten: {data}')
+
+    try:
+        _process_alarm(data)
+    except Exception:
+        logging.error(f' WAIP2ALAMOS: Fehler bei der Verarbeitung von io.new_waip: {data}')
+        logging.error(traceback.format_exc())
+
+
+def _process_alarm(data):
     global letzter_alarm
 
     from datetime import datetime
 
-    # ts_alarm ist ein Unix-Timestamp (Sekunden), zeitstempel war früher ein formatierter String
-    alarm_time = datetime.fromtimestamp(data["ts_alarm"])
+    # zeitstempel ist ein formatierter String (kein ts_alarm Unix-Timestamp,
+    # die Wachalarm IP API liefert nach wie vor das alte Feld)
+    alarm_time = datetime.strptime(data["zeitstempel"], "%Y-%m-%d %H:%M:%S")
     time_dif = datetime.today() - alarm_time
 
-    # Feldname: stichwort -> einsatzstichwort
-    stichwort = data["einsatzstichwort"]
+    # Feldname ist stichwort (kein einsatzstichwort, die API liefert nach wie vor das alte Feld)
+    stichwort = data["stichwort"]
 
     print(f'Neuer Alarm: {data["id"]} {stichwort} - {data["ort"]}')
     logging.info(f' WAIP2ALAMOS: ===> Neuer Alarm! ID: {data["id"]}')
-    logging.info(f' WAIP2ALAMOS: ts_alarm: {alarm_time}')
+    logging.info(f' WAIP2ALAMOS: zeitstempel: {alarm_time}')
     logging.info(f' WAIP2ALAMOS: Alarm Offset: {time_dif}')
     logging.info(f' WAIP2ALAMOS: einsatzart: {data["einsatzart"]}')
-    logging.info(f' WAIP2ALAMOS: einsatzstichwort: {stichwort}')
+    logging.info(f' WAIP2ALAMOS: stichwort: {stichwort}')
     logging.info(f' WAIP2ALAMOS: ortsteil: {data["ortsteil"]}')
     logging.info(f' WAIP2ALAMOS: ort: {data["ort"]}')
     logging.info(f' WAIP2ALAMOS: em_alarmiert: {data["em_alarmiert"]}')
@@ -184,8 +201,11 @@ def on_alarm(data):
     if (time_dif.total_seconds() < 600):
         if (letzter_alarm != data["id"]):
             logging.info(f' WAIP2ALAMOS: Trying to do FE2 POST request with this data: {post_data}')
-            post = requests.post(fe2_url, json=post_data, timeout=300)
-            logging.info(f' WAIP2ALAMOS: FE2 POST request return code: {post.text}')
+            try:
+                post = requests.post(fe2_url, json=post_data, timeout=300)
+                logging.info(f' WAIP2ALAMOS: FE2 POST request return code: {post.text}')
+            except requests.exceptions.RequestException as e:
+                logging.error(f' WAIP2ALAMOS: FE2 POST request fehlgeschlagen: {e}')
             letzter_alarm = data["id"]
         else:
             logging.info(f' WAIP2ALAMOS: Alarm nicht gesendet, doppelalarm')
